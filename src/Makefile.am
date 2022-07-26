@@ -353,12 +353,26 @@ loggers_libadd = \
 	$(LOGGERS_LIBS) \
 	$(NULL)
 
+opentelemetry_libadd = \
+	-L/usr/local/lib/	\
+	-lopentelemetry_resources	\
+	-lopentelemetry_trace	\
+	-lopentelemetry_logs	\
+	-lopentelemetry_common	\
+	-lopentelemetry_version	\
+	-lopentelemetry_exporter_fluentd_trace	\
+	-lopentelemetry_exporter_fluentd_logs	\
+	$(NULL)
+
 if ENABLE_JSONLOGGER
 logger_LTLIBRARIES += loggers/libjanus_jsonlog.la
-loggers_libjanus_jsonlog_la_SOURCES = loggers/janus_jsonlog.c
-loggers_libjanus_jsonlog_la_CFLAGS = $(loggers_cflags)
+loggers_libjanus_jsonlog_la_SOURCES = loggers/janus_jsonlog.cpp loggers/janus_otellog.cpp loggers/janus_otellog.hpp
+# TODO: -std=c++20 for gcc-10 and above
+loggers_libjanus_jsonlog_la_CFLAGS = $(loggers_cflags) -std=c++2a
+loggers_libjanus_jsonlog_la_CXXFLAGS = $(loggers_cflags) -std=c++2a -I/usr/local/include
 loggers_libjanus_jsonlog_la_LDFLAGS = $(loggers_ldflags)
-loggers_libjanus_jsonlog_la_LIBADD = $(loggers_libadd)
+loggers_libjanus_jsonlog_la_LIBADD = $(loggers_libadd) $(opentelemetry_libadd)
+
 conf_DATA += ../conf/janus.logger.jsonlog.jcfg.sample
 EXTRA_DIST += ../conf/janus.logger.jsonlog.jcfg.sample
 endif

@@ -12,6 +12,8 @@
  * \ref loggers
  */
 
+extern "C" {
+
 #include "logger.h"
 
 #include "../debug.h"
@@ -19,6 +21,9 @@
 #include "../mutex.h"
 #include "../utils.h"
 
+};
+
+#include "./janus_otellog.hpp"
 
 /* Plugin information */
 #define JANUS_JSONLOG_VERSION			1
@@ -28,37 +33,40 @@
 #define JANUS_JSONLOG_AUTHOR			"Meetecho s.r.l."
 #define JANUS_JSONLOG_PACKAGE			"janus.logger.jsonlog"
 
-/* Plugin methods */
-janus_logger *create(void);
-int janus_jsonlog_init(const char *server_name, const char *config_path);
-void janus_jsonlog_destroy(void);
-int janus_jsonlog_get_api_compatibility(void);
-int janus_jsonlog_get_version(void);
-const char *janus_jsonlog_get_version_string(void);
-const char *janus_jsonlog_get_description(void);
-const char *janus_jsonlog_get_name(void);
-const char *janus_jsonlog_get_author(void);
-const char *janus_jsonlog_get_package(void);
-void janus_jsonlog_incoming_logline(int64_t timestamp, const char *line);
-json_t *janus_jsonlog_handle_request(json_t *request);
+extern "C"
+{
+	/* Plugin methods */
+	janus_logger *create(void);
+	int janus_jsonlog_init(const char *server_name, const char *config_path);
+	void janus_jsonlog_destroy(void);
+	int janus_jsonlog_get_api_compatibility(void);
+	int janus_jsonlog_get_version(void);
+	const char *janus_jsonlog_get_version_string(void);
+	const char *janus_jsonlog_get_description(void);
+	const char *janus_jsonlog_get_name(void);
+	const char *janus_jsonlog_get_author(void);
+	const char *janus_jsonlog_get_package(void);
+	void janus_jsonlog_incoming_logline(int64_t timestamp, const char *line);
+	json_t *janus_jsonlog_handle_request(json_t *request);
+};
 
 /* Logger setup */
-static janus_logger janus_jsonlog =
-	JANUS_LOGGER_INIT (
-		.init = janus_jsonlog_init,
-		.destroy = janus_jsonlog_destroy,
+static janus_logger janus_jsonlog = {
 
-		.get_api_compatibility = janus_jsonlog_get_api_compatibility,
-		.get_version = janus_jsonlog_get_version,
-		.get_version_string = janus_jsonlog_get_version_string,
-		.get_description = janus_jsonlog_get_description,
-		.get_name = janus_jsonlog_get_name,
-		.get_author = janus_jsonlog_get_author,
-		.get_package = janus_jsonlog_get_package,
+		janus_jsonlog_init,
+		janus_jsonlog_destroy,
 
-		.incoming_logline = janus_jsonlog_incoming_logline,
-		.handle_request = janus_jsonlog_handle_request,
-	);
+		janus_jsonlog_get_api_compatibility,
+		janus_jsonlog_get_version,
+		janus_jsonlog_get_version_string,
+		janus_jsonlog_get_description,
+		janus_jsonlog_get_name,
+		janus_jsonlog_get_author,
+		janus_jsonlog_get_package,
+
+		janus_jsonlog_incoming_logline,
+		janus_jsonlog_handle_request
+	};
 
 /* Plugin creator */
 janus_logger *create(void) {
@@ -79,11 +87,6 @@ static size_t json_format = JSON_INDENT(3) | JSON_PRESERVE_ORDER;
 /* Queue of log lines to handle */
 static GAsyncQueue *loglines = NULL;
 
-/* Structure we use for queueing log lines */
-typedef struct janus_jsonlog_line {
-	int64_t timestamp;		/* When the log line was printed */
-	char *line;				/* Content of the log line */
-} janus_jsonlog_line;
 static janus_jsonlog_line exit_line;
 static void janus_jsonlog_line_free(janus_jsonlog_line *jline) {
 	if(!jline || jline == &exit_line)
@@ -258,6 +261,12 @@ const char *janus_jsonlog_get_package(void) {
 	return JANUS_JSONLOG_PACKAGE;
 }
 
+/* TODO: w3c TraceContext / OpenTelemetry fields */
+char* context_traceid = "c7514883555942c4b0af8057c49b4fe4"; // the trace identifier of the span context.
+int64_t context_spanid = 3709551615; // the span identifier of the span context.
+int context_traceflags = 12345; // the trace options for the span context.
+int context_tracestate = 12345; // the trace state for the span context.
+
 void janus_jsonlog_incoming_logline(int64_t timestamp, const char *line) {
 	if(g_atomic_int_get(&stopping) || !g_atomic_int_get(&initialized) || line == NULL) {
 		/* Janus is closing or the plugin is */
@@ -271,9 +280,18 @@ void janus_jsonlog_incoming_logline(int64_t timestamp, const char *line) {
 	 * it in our own thread: we have a monotonic time indicator of when the
 	 * log line was actually added on this machine, so that, if relevant, we can
 	 * compute any delay in the actual log line processing ourselves. */
-	janus_jsonlog_line *l = g_malloc(sizeof(janus_jsonlog_line));
+	janus_jsonlog_line *l = static_cast<janus_jsonlog_line *>(g_malloc(sizeof(janus_jsonlog_line)));
 	l->timestamp = timestamp;
 	l->line = g_strdup(line);
+
+	// TODO: obtain from thread-local context
+	l->traceid = context_traceid;
+	l->spanid = context_spanid;
+	l->traceflags = 0;
+	l->tracestate = 0;
+
+	// Current thread
+	l->tid = gettid();
 	g_async_queue_push(loglines, l);
 
 }
@@ -292,14 +310,19 @@ json_t *janus_jsonlog_handle_request(json_t *request) {
 	if(error_code != 0)
 		goto plugin_response;
 	/* Get the request */
-	const char *request_text = json_string_value(json_object_get(request, "request"));
-	if(!strcasecmp(request_text, "info")) {
-		/* We only support a request to get some info from the plugin */
-		json_object_set_new(response, "result", json_integer(200));
-	} else {
-		JANUS_LOG(LOG_VERB, "Unknown request '%s'\n", request_text);
-		error_code = JANUS_JSONLOG_ERROR_INVALID_REQUEST;
-		g_snprintf(error_cause, 512, "Unknown request '%s'", request_text);
+	{
+		const char *request_text = json_string_value(json_object_get(request, "request"));
+		if (!strcasecmp(request_text, "info"))
+		{
+			/* We only support a request to get some info from the plugin */
+			json_object_set_new(response, "result", json_integer(200));
+		}
+		else
+		{
+			JANUS_LOG(LOG_VERB, "Unknown request '%s'\n", request_text);
+			error_code = JANUS_JSONLOG_ERROR_INVALID_REQUEST;
+			g_snprintf(error_cause, 512, "Unknown request '%s'", request_text);
+		}
 	}
 
 plugin_response:
@@ -324,9 +347,12 @@ static void *janus_jsonlog_thread(void *data) {
 
 	while(g_atomic_int_get(&initialized) && !g_atomic_int_get(&stopping)) {
 		/* Get a log line from the queue */
-		jline = g_async_queue_pop(loglines);
+		jline = static_cast<janus_jsonlog_line *>(g_async_queue_pop(loglines));
 		if(jline == &exit_line)
 			break;
+
+		/* Pass jline to OpenTelemetry SDK */
+		otel_log_line(jline);
 
 		/* Create a new JSON object with its contents */
 		json = json_object();
@@ -335,6 +361,16 @@ static void *janus_jsonlog_thread(void *data) {
 			json_object_set_new(json, "line", json_string(jline->line));
 		janus_jsonlog_line_free(jline);
 
+		// TODO: this is just an illustration of what we can append.
+		// w3c TraceContext / OpenTelemetry fields must actually come
+		// from jline data structure, i.e. populated from context of
+		// the calling thread, not in context of JSON logger thread.
+		json_object_set_new(json, "traceid", json_string(jline->traceid));
+		json_object_set_new(json, "spanid", json_integer(jline->spanid));
+		json_object_set_new(json, "tid", json_integer(jline->tid));
+
+		// Debug code that logs JSON objects to log file.
+#if 1
 		/* Convert the JSON object to string */
 		json_text = json_dumps(json, json_format);
 		json_decref(json);
@@ -342,6 +378,19 @@ static void *janus_jsonlog_thread(void *data) {
 		/* Save it to file */
 		json_len = strlen(json_text);
 		offset = 0;
+
+		/* Remove leading 0 */
+		if (json_text[offset]==0)
+		{
+			offset++;
+			json_len--;
+		}
+		/* Remove trailing 0 */
+		if (json_text[json_len-1]==0)
+		{
+			json_len--;
+		}
+
 		while(json_len > 0) {
 			written = fwrite(json_text + offset, sizeof(char), json_len, logfile);
 			json_len -= written;
@@ -350,6 +399,7 @@ static void *janus_jsonlog_thread(void *data) {
 		fwrite("\n", sizeof(char), sizeof("\n"), logfile);
 		fflush(logfile);
 		free(json_text);
+#endif
 	}
 	JANUS_LOG(LOG_VERB, "Leaving JSON logger thread\n");
 	return NULL;

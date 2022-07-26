@@ -59,6 +59,7 @@ extern char *janus_log_global_prefix;
 /*! \brief Coloured prefixes for errors and warnings logging. */
 static const char *janus_log_prefix[] = {
 /* no colors */
+#if 0
 	"",
 	"[FATAL] ",
 	"[ERR] ",
@@ -67,6 +68,16 @@ static const char *janus_log_prefix[] = {
 	"",
 	"",
 	"",
+#else
+	"",
+	"F|",
+	"E|",
+	"W|",
+	"I|",
+	"V|",
+	"H|",
+	"D|",
+#endif
 /* with colors */
 	"",
 	ANSI_COLOR_MAGENTA "[FATAL]" ANSI_COLOR_RESET " ",

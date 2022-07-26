@@ -5,9 +5,9 @@
 # developers willing to provide additional, and more complex, external loggers.
 
 general: {
-	enabled = false		# By default the module is not enabled
+	enabled = true		# By default the module is not enabled
 
-	json = "indented"	# Since this logger simply writes each log line as
+	json = "compact"	# Since this logger simply writes each log line as
 						# a JSON object to a file, you can configure whether
 						# the JSON log lines should be indented (default),
 						# plain (no indentation) or compact (no indentation and no spaces)
