@@ -22,6 +22,7 @@
 #include "../utils.h"
 #include "../events.h"
 
+void janus_otel_trace(json_t *obj);
 
 /* Plugin information */
 #define JANUS_SAMPLEEVH_VERSION			1
@@ -717,6 +718,7 @@ static void *janus_sampleevh_handler(void *data) {
 				continue;
 			}
 		}
+
 		/* Whether we just prepared the event or this is a retransmission, send it via HTTP POST */
 		CURLcode res;
 		struct curl_slist *headers = NULL;
@@ -787,6 +789,14 @@ done:
 			curl_slist_free_all(headers);
 		if(!retransmit)
 			free(event_text);
+
+		if (output!=NULL)
+		{
+			/* Send as OpenTelemetry Trace event */
+			// janus_mutex_lock(&evh_mutex);
+			janus_otel_trace(output);
+			// janus_mutex_unlock(&evh_mutex);
+		}
 
 		/* Done, let's unref the event */
 		json_decref(output);

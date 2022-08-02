@@ -165,6 +165,17 @@ janus_cfgconv_LDADD = \
 	$(JANUS_MANUAL_LIBS) \
 	$(NULL)
 
+opentelemetry_libadd = \
+	-L/usr/local/lib/	\
+	-lopentelemetry_resources	\
+	-lopentelemetry_trace	\
+	-lopentelemetry_logs	\
+	-lopentelemetry_common	\
+	-lopentelemetry_version	\
+	-lopentelemetry_exporter_fluentd_trace	\
+	-lopentelemetry_exporter_fluentd_logs	\
+	$(NULL)
+
 dist_man1_MANS += janus-cfgconv.1
 
 BUILT_SOURCES = version.c
@@ -282,10 +293,11 @@ events_libadd = \
 
 if ENABLE_SAMPLEEVH
 event_LTLIBRARIES += events/libjanus_sampleevh.la
-events_libjanus_sampleevh_la_SOURCES = events/janus_sampleevh.c
+events_libjanus_sampleevh_la_SOURCES = events/janus_sampleevh.c events/janus_oteltrace.cpp events/janus_oteltrace.hpp
 events_libjanus_sampleevh_la_CFLAGS = $(events_cflags) $(LIBCURL_CFLAGS)
+events_libjanus_sampleevh_la_CXXFLAGS = $(events_cflags) -std=c++2a -I/usr/local/include
 events_libjanus_sampleevh_la_LDFLAGS = $(events_ldflags) $(LIBCURL_LDFLAGS) $(LIBCURL_LIBS) -lm
-events_libjanus_sampleevh_la_LIBADD = $(events_libadd) $(LIBCURL_LIBADD)
+events_libjanus_sampleevh_la_LIBADD = $(events_libadd) $(LIBCURL_LIBADD) $(opentelemetry_libadd)
 conf_DATA += ../conf/janus.eventhandler.sampleevh.jcfg.sample
 EXTRA_DIST += ../conf/janus.eventhandler.sampleevh.jcfg.sample
 endif
@@ -351,17 +363,6 @@ loggers_cflags = \
 
 loggers_libadd = \
 	$(LOGGERS_LIBS) \
-	$(NULL)
-
-opentelemetry_libadd = \
-	-L/usr/local/lib/	\
-	-lopentelemetry_resources	\
-	-lopentelemetry_trace	\
-	-lopentelemetry_logs	\
-	-lopentelemetry_common	\
-	-lopentelemetry_version	\
-	-lopentelemetry_exporter_fluentd_trace	\
-	-lopentelemetry_exporter_fluentd_logs	\
 	$(NULL)
 
 if ENABLE_JSONLOGGER
