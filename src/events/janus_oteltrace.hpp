@@ -16,7 +16,7 @@
 #include "opentelemetry/sdk/trace/tracer_provider.h"
 #include "opentelemetry/sdk/trace/simple_processor.h"
 
-typedef enum
+typedef enum: uint64_t
 {
 	EVENT_TYPE_NONE = (0),
 	/*! \brief Session related events (e.g., session created/destroyed, etc.) */
